@@ -1,0 +1,8 @@
+GPU 型号            : NVIDIA GeForce RTX 3090
+compute capability  : 8.6
+SM 数量             : 82
+warp 大小           : 32
+shared mem / block  : 49152
+max threads / SM    : 1536
+global mem          : 25438126080
+max threads / block : 1024
