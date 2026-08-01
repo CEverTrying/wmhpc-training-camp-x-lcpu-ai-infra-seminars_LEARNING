@@ -1,6 +1,7 @@
 // 问题 2.5：找 bug。
 // 这个程序不报错，直接 FAIL（kernel 好像压根没跑。。。）
 // 任务：先定位到具体error（提示在文件末尾），再解释原因，并修好它。
+// 错误原因是thread(设定的每个Block的线程数)大于允许的线程数,导致kerne数据非法,直接没有运行kernel
 #include "common.h"
 
 __global__ void vectorAdd(const float *a, const float *b, float *c, int n) {
