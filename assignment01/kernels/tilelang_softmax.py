@@ -19,10 +19,64 @@ contract：
 Tip: elementwise + 行内归约的 kernel 大概率是带宽瓶颈，可以想想理论上限是多少。
 """
 
+from numpy import dtype
+from sympy import N
 import torch
 import tilelang
 import tilelang.language as T
 
 
 def softmax(x: torch.Tensor) -> torch.Tensor:
-    raise NotImplementedError("从这里开始写")
+    if x.ndim != 2:
+        raise ValueError(f"softmax expects a 2-D tensor, got shape {tuple(x.shape)}")
+    if x.dtype != torch.float32:
+        raise TypeError(f"softmax expects float32 input, got {x.dtype}")
+    if not x.is_cuda:
+        raise ValueError("TileLang softmax expects a CUDA tensor")
+
+    M, N = map(int, x.shape)
+    if M == 0 or N == 0:
+        return torch.softmax(x, dim=-1)
+
+    if not x.is_contiguous():
+        x = x.contiguous()
+
+    width = 1 if N <= 1 else 1 << (N - 1).bit_length()
+    cache = getattr(softmax, "_compiled", None)
+    if cache is None:
+        cache = {}
+        softmax._compiled = cache
+
+    key = (M, N, x.device)
+    kernel = cache.get(key)
+    if kernel is None:
+        @T.prim_func
+        def softmax_kernel(
+            A: T.Buffer((M, N), "float32"),
+            B: T.Buffer((M, N), "float32"),
+        ):
+            with T.Kernel(T.ceildiv(M, 1), 1, threads=256) as (bx, _by):
+                values = T.alloc_fragment((width,), "float32")
+                shifted_exp = T.alloc_fragment((width,), "float32")
+                row_max = T.alloc_fragment((1,), "float32")
+                row_sum = T.alloc_fragment((1,), "float32")
+
+                for j in T.Parallel(width):
+                    values[j] = T.if_then_else(
+                        j < N, A[bx, j], -T.infinity("float32")
+                    )
+
+                T.reduce_max(values, row_max, dim=0)
+
+                for j in T.Parallel(width):
+                    shifted_exp[j] = T.exp(values[j] - row_max[0])
+
+                T.reduce_sum(shifted_exp, row_sum, dim=0)
+
+                for j in T.Parallel(width):
+                    if j < N:
+                        B[bx, j] = shifted_exp[j] / row_sum[0]
+
+        kernel = tilelang.compile(softmax_kernel, out_idx=[1])
+        cache[key] = kernel
+    return kernel(x)
