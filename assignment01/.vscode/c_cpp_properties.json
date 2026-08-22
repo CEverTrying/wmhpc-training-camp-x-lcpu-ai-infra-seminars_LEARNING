@@ -5,11 +5,11 @@
       "name": "CUDA-Linux",
       "includePath": [
         "${workspaceFolder}/**",
-        "/usr/local/cuda/include",
+        "/usr/local/cuda-13.1/include",
         "${workspaceFolder}/cuda"
       ],
       "defines": [],
-      "compilerPath": "/usr/local/cuda/bin/nvcc",
+      "compilerPath": "/usr/local/cuda-13.1/bin/nvcc",
       "cStandard": "c11",
       "cppStandard": "c++17",
       "cudaStandard": "c++17",
