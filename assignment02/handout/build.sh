@@ -10,7 +10,7 @@ pandoc "$SRC" \
     --from markdown+fenced_divs+pipe_tables+raw_tex \
     --template template.tex \
     --lua-filter filters/boxes.lua \
-    --syntax-highlighting=idiomatic \
+    --listings \
     -o "$BASE.tex"
 xelatex -interaction=nonstopmode "$BASE.tex" >/dev/null || true
 xelatex -interaction=nonstopmode "$BASE.tex" | tail -3

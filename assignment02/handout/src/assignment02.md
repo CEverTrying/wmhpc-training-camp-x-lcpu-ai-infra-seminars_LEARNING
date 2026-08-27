@@ -66,13 +66,13 @@ make run/m0_env/01_first_mma
 
 | 量 | 5090 | B300 |
 |---|---|---|
-| bf16 FLOP/cycle/SM | | |
-| bf16 峰值(TFLOPS) | | |
-| fp8 峰值(TFLOPS) | | |
-| fp4 峰值(TFLOPS) | | |
-| datasheet 对照值与口径差异 | | |
-| HBM/GDDR 带宽(GB/s) | | |
-| 机器平衡点(FLOP/byte，bf16) | | |
+| bf16 FLOP/cycle/SM |512 |8192 |
+| bf16 峰值(TFLOPS) |209.5 |2250 |
+| fp8 峰值(TFLOPS) |419 |4500 |
+| fp4 峰值(TFLOPS) |838 |9000 |
+| datasheet 对照值与口径差异 |5090:fp4差异巨大,来源于专用fp4路径 |同5090 |
+| HBM/GDDR 带宽(GB/s) |1792 |8000 |
+| 机器平衡点(FLOP/byte，bf16) |116.9 |281.25 |
 
 根据 bf16 峰值和显存带宽计算机器平衡点（FLOP/byte），并与单条 mma 的计算强度（S016，m16n8k16 fp16 为 3.2 FLOP/byte）比较。思考两者之间的差距意味着什么，以及为什么后续 M2--M4 需要从数据供给路径入手优化。
 
