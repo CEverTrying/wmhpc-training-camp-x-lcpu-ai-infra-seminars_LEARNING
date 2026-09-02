@@ -186,10 +186,10 @@ ncu --metrics l1tex__data_pipe_lsu_wavefronts_mem_shared_op_ld.sum,l1tex__data_b
 
 | 档位 | 预测 wavefront 比 | 实测 wavefront | 实测 conflict | 平均 cycle |
 |---|---|---|---|---|
-| 32 B | | | | |
-| 64 B | | | | |
-| 128 B | | | | |
-| 128+16 B | | | | |
+| 32 B |2 |16384 |8192 |9.72 |
+| 64 B |4 |32768 |24576 |10.75 |
+| 128 B |8 |65536 |57344 |16.06 |
+| 128+16 B |1 |8192 |0 |9.24 |
 
 比较预测与实测结果：哪一种行跨度使 wavefront 数增加到 4 倍？
 wavefront 的比例应与 bank 模型一致，但实际耗时的差距通常没有这么大。

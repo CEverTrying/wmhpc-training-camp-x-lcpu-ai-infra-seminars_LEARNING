@@ -27,13 +27,43 @@
 __device__ void load_manual(const uint8_t* sA, const uint8_t* sBk,
                             const uint8_t* sBn, unsigned (&a)[4],
                             unsigned (&b)[2]) {
-    (void)sA; (void)sBk; (void)sBn; (void)a; (void)b;
+    int lane = threadIdx.x;
+    int group=lane/4, tig=lane%4;
+    for(int i=0;i<4;i++){
+        a[i]=0;
+        int loc=group*32+tig*4+(i/2)*16+(i%2)*8*32;
+        for(int j=0;j<4;j++){
+            a[i]|=sA[loc+j]<<(j*8);
+        }
+    }
+    for(int i=0;i<2;i++){
+        b[i]=0;
+        int loc=group*32+tig*4+(i%2)*16;
+        for(int j=0;j<4;j++){
+            b[i]|=sBn[loc+j]<<(j*8);
+        }
+    }
 }
 
 __device__ void load_ldsm(const uint8_t* sA, const uint8_t* sBk,
                           const uint8_t* sBn, unsigned (&a)[4],
                           unsigned (&b)[2]) {
-    (void)sA; (void)sBk; (void)sBn; (void)a; (void)b;
+    int lane = threadIdx.x;
+    int row=lane & 15;
+    int col=(lane >> 4)*16;
+    uint32_t addr=(uint32_t)__cvta_generic_to_shared(sA+row*32+col);
+    asm volatile(
+        "ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];\n"
+        : "=r"(a[0]), "=r"(a[1]), "=r"(a[2]), "=r"(a[3])
+        : "r"(addr));
+    row=lane & 7;
+    col=(lane >> 3)*16;
+    addr=(uint32_t)__cvta_generic_to_shared(sBn+row*32+col);
+    asm volatile(
+        "ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0,%1}, [%2];\n"
+        : "=r"(b[0]), "=r"(b[1])
+        : "r"(addr));   
+    
 }
 
 template <bool USE_LDSM>

@@ -3,8 +3,9 @@
 // 提交时回答两问(先跑,后改):
 // (a) 描述错误症状:D 的哪些位置错,错成了什么样(和对的部分是什么
 //     关系)。
+// 错误的部分是D的row8~15,和上半部分完全一样
 // (b) 错的是哪个 fragment 的哪部分映射?为什么恰好产生 (a) 的症状?
-//
+//是A的映射出错,A的上下半一样
 // 运行:make run/m1_sm80/02_bug_fragment
 #include <cuda_fp16.h>
 #include "../common.h"
@@ -17,12 +18,12 @@ __global__ void mma_buggy(const __half* A, const __half* B, float* D) {
     // A fragment:8 个 fp16 逐个装载。
     __half a0 = A[group * 16 + tig * 2];
     __half a1 = A[group * 16 + tig * 2 + 1];
-    __half a2 = A[group * 16 + tig * 2];
-    __half a3 = A[group * 16 + tig * 2 + 1];
+    __half a2 = A[group * 16 + tig * 2+128];
+    __half a3 = A[group * 16 + tig * 2 + 1+128];
     __half a4 = A[group * 16 + tig * 2 + 8];
     __half a5 = A[group * 16 + tig * 2 + 9];
-    __half a6 = A[group * 16 + tig * 2 + 8];
-    __half a7 = A[group * 16 + tig * 2 + 9];
+    __half a6 = A[group * 16 + tig * 2 + 8+128];
+    __half a7 = A[group * 16 + tig * 2 + 9+128];
     unsigned ra[4];
     reinterpret_cast<__half2*>(ra)[0] = __halves2half2(a0, a1);
     reinterpret_cast<__half2*>(ra)[1] = __halves2half2(a2, a3);
@@ -83,7 +84,7 @@ int main() {
     for (int r = 0; r < 16; r++)
         for (int n = 0; n < 8; n++)
             if (got[r * 8 + n] != ref[r * 8 + n]) {
-                if (bad < 4)
+                if (bad < 60)
                     printf("MISMATCH D[%d][%d]: got %.0f, want %.0f\n", r, n,
                            got[r * 8 + n], ref[r * 8 + n]);
                 bad++;
