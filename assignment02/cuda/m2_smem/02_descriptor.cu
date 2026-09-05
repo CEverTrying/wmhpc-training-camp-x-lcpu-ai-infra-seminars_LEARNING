@@ -25,15 +25,29 @@
 // TODO (a):实现位域编码。
 static uint64_t make_desc(uint32_t saddr, uint32_t lbo, uint32_t sbo,
                           uint32_t layout) {
-    (void)saddr; (void)lbo; (void)sbo; (void)layout;
-    return 0;
+    union gmmadesc{
+        uint64_t u32;
+        struct{
+            uint64_t start_address:14,:2;
+            uint64_t LBO:14,:2;
+            uint64_t SBO:14;
+            uint64_t version:2,:13;
+            uint64_t layout_type:3;
+        }f;
+    } desc{};
+    desc.f.start_address = saddr >> 4;
+    desc.f.LBO = lbo >> 4;
+    desc.f.SBO = sbo >> 4;
+    desc.f.version = 1;
+    desc.f.layout_type = layout;
+    return desc.u32;
 }
 
 // TODO (b):三个场景的 {LBO 字节, SBO 字节, layout 编码}。
 static const uint32_t SCEN[3][3] = {
-    {0, 0, 0},  // 场景 1
-    {0, 0, 0},  // 场景 2
-    {0, 0, 0},  // 场景 3
+    {128, 1024, 0},  // 场景 1
+    {0, 1024, 2},  // 场景 2
+    {0, 1024, 2},  // 场景 3
 };
 
 // 以下为判测,不需要修改。不匹配时按字段报差异,不打印期望值。
