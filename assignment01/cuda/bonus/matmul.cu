@@ -20,7 +20,7 @@ __global__ void matmul_naive(const float *A, const float *B, float *C,
 }
 
 int main() {
-    const int M = 1024, N = 1024, K = 1024;
+    const int M = 4096, N = 4096, K = 4096;
     size_t bytesA = (size_t)M * K * sizeof(float);
     size_t bytesB = (size_t)K * N * sizeof(float);
     size_t bytesC = (size_t)M * N * sizeof(float);

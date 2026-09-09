@@ -389,11 +389,11 @@ assignment01 Bonus 中的 naive matmul。由于该实现使用 fp32，只比较�
 
 | 实现 | TFLOPS | 对 cuBLAS 达成率 | 一句话：时间主要花在哪 |
 |---|---|---|---|
-| naive（assignment01，fp32） | | | |
-| 4.1 tiled | | | |
-| 4.2 TMA | | | |
+| naive（assignment01，fp32） |3.4290 |0.3% | |
+| 4.1 tiled |29.4 |3% | |
+| 4.2 TMA |540.8 |31% | |
 | 4.3 pipeline（S=3） | | | |
-| cuBLAS | | 100% | |
+| cuBLAS |1040 | 100% | |
 
 
 ### 4.1 {.prob type=FROM-SCRATCH file=cuda/m4_gemm/01_tiled.cu}
