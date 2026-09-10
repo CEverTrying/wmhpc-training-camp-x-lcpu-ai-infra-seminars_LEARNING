@@ -19,13 +19,34 @@ template <int BLOCK>
 __global__ void probe_kernel(const __nv_bfloat16* __restrict__ in,
                              uint8_t* __restrict__ dataOut,
                              uint8_t* __restrict__ sfOut, int M, int K) {
-    // TODO: 与你的 quant kernel 同形的访存,xor 直通,无数学。
+    int threadnum=gridDim.x*blockDim.x;
+    int idx=threadIdx.x+blockDim.x*blockIdx.x;
+    for(int i=idx;i<M*(K/16);i+=threadnum){
+        int start=i*16;
+        uint8_t sf=0;
+        for(int j=0;j<8;j++){
+            unsigned short a=__bfloat16_as_ushort(in[start+2*j]);
+            unsigned short b=__bfloat16_as_ushort(in[start+2*j+1]);
+            unsigned short mixed=a^b;
+            uint8_t packed=static_cast<uint8_t>(mixed^(mixed>>8));
+            dataOut[start/2+j]=packed;
+            sf^=packed;
+        }
+        int row=i/(K/16);
+        int group=i%(K/16);
+        sfOut[sf_swizzled_offset(row,group,nvfp4_num_ktiles(K))]=sf;
+    }
 }
 
 static void launch_probe(const __nv_bfloat16* in, uint8_t* dataOut,
                          uint8_t* sfOut, int M, int K, int sms) {
-    // TODO: 启动配置。
-    (void)in; (void)dataOut; (void)sfOut; (void)M; (void)K; (void)sms;
+    if (M <= 0 || K <= 0) return;
+    constexpr int BLOCK = 128;
+    const int64_t groups = int64_t(M) * (K / NVFP4_GROUP);
+    const int64_t needed = (groups + BLOCK - 1) / BLOCK;
+    const int limit = (sms > 0 ? sms : 1) * 8;
+    const int grid = needed < limit ? int(needed) : limit;
+    probe_kernel<BLOCK><<<grid, BLOCK>>>(in, dataOut, sfOut, M, K);
 }
 
 int main() {

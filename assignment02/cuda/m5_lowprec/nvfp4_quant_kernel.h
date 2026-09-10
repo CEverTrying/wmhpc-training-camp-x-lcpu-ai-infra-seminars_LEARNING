@@ -29,12 +29,39 @@ template <int BLOCK>
 __global__ void nvfp4_quant_kernel(const __nv_bfloat16* __restrict__ in,
                                    uint8_t* __restrict__ dataOut,
                                    uint8_t* __restrict__ sfOut, int M, int K) {
-    // TODO: 实现。
+    int threadnum=gridDim.x*blockDim.x;
+    int idx=threadIdx.x+blockDim.x*blockIdx.x;
+    for(int i=idx;i<M*(K/16);i+=threadnum){
+        int start=i*16;
+        float maxn=fabsf(__bfloat162float(in[start]));
+        for(int j=1;j<16;j++){
+            float v=fabsf(__bfloat162float(in[start+j]));
+            if(v>maxn) maxn=v;
+        }
+        __nv_fp8_e4m3 sf=__nv_fp8_e4m3(maxn/6.0f);
+        float s=float(sf);
+        float inv=s!=0.f ? 1.0f/s : 0.f;
+        int row=i/(K/16);
+        int group=i%(K/16);
+        sfOut[sf_swizzled_offset(row,group,nvfp4_num_ktiles(K))]=sf.__x;
+        for(int j=0;j<8;j++){
+            // 两个 scaled FP4 合并为一个 byte，前一个元素放低 4 位。
+            float lo=__bfloat162float(in[start+2*j])*inv;
+            float hi=__bfloat162float(in[start+2*j+1])*inv;
+            __nv_fp4x2_e2m1 packed(make_float2(lo,hi));
+            dataOut[start/2+j]=packed.__x;
+        }
+    }
 }
 
 // 判测和 5.4 会按这个签名调用;grid 大小你自己定,写在这里。
 inline void launch_nvfp4_quant(const __nv_bfloat16* in, uint8_t* dataOut,
                                uint8_t* sfOut, int M, int K, int sms) {
-    // TODO: 选择 grid/block 并启动 nvfp4_quant_kernel。
-    (void)in; (void)dataOut; (void)sfOut; (void)M; (void)K; (void)sms;
+    if (M <= 0 || K <= 0) return;
+    constexpr int BLOCK = 128;
+    const int64_t groups = int64_t(M) * (K / NVFP4_GROUP);
+    const int64_t needed = (groups + BLOCK - 1) / BLOCK;
+    const int limit = (sms > 0 ? sms : 1) * 8;
+    const int grid = needed < limit ? int(needed) : limit;
+    nvfp4_quant_kernel<BLOCK><<<grid, BLOCK>>>(in, dataOut, sfOut, M, K);
 }

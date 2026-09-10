@@ -15,7 +15,16 @@
 #include <math.h>
 
 __host__ __device__ inline uint8_t e2m1_encode(float v) {
-    // TODO: 实现。返回 4 bit 编码(bit3 符号,bit0-2 幅值格点下标)。
-    (void)v;
-    return 0;
+    const uint8_t sign = signbit(v) ? 0x8 : 0;
+    const float magnitude = fabsf(v);
+    uint8_t code;
+    if      (magnitude <= 0.25f) code = 0;
+    else if (magnitude <  0.75f) code = 1;
+    else if (magnitude <= 1.25f) code = 2;
+    else if (magnitude <  1.75f) code = 3;
+    else if (magnitude <= 2.5f)  code = 4;
+    else if (magnitude <  3.5f)  code = 5;
+    else if (magnitude <= 5.0f)  code = 6;
+    else                       code = 7;
+    return sign | code;
 }

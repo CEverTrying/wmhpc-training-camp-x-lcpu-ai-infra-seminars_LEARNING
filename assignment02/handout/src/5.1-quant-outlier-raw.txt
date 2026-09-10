@@ -1,0 +1,19 @@
+含 outlier:
+  x≈0.5      rel_err=4.611e-02
+  x≈0.1      rel_err=4.634e-02
+  x≈0.01     rel_err=3.085e-01
+  x≈0.005    rel_err=1.000e+00
+  x≈3000.0   rel_err=0.000e+00
+(a) 去掉 outlier: rel_err(0.5)=3.086322e-04, 含/不含误差比=149.409925
+(b) 含 outlier: scale=6.696428776e+00, zero_threshold=6.539481226e-03
+  threshold * [0.999, 1, 1.001] -> [0.0, 0.0, 0.013078962452709675]
+  含 outlier: n=10001, mean_rel=3.796167e-02, max_abs=5.231035e-02, nonzero_to_zero=79
+(b) 不含 outlier: scale=2.231889637e-03, zero_threshold=2.179579724e-06
+  threshold * [0.999, 1, 1.001] -> [0.0, 0.0, 4.3591594476311e-06]
+  不含 outlier: n=10000, mean_rel=2.208069e-02, max_abs=3.568542e-02, nonzero_to_zero=0
+(c) block_size=128, outlier_block_start=9984, outlier_block_length=17
+  普通 blocks / per-tensor: n=9984, mean_rel=3.798510e-02, max_abs=5.231035e-02, nonzero_to_zero=79
+  普通 blocks / per-block: n=9984, mean_rel=2.205409e-02, max_abs=3.569806e-02, nonzero_to_zero=0
+  outlier block 的普通元素 / per-tensor: n=16, mean_rel=2.571692e-02, max_abs=3.509289e-02, nonzero_to_zero=0
+  outlier block 的普通元素 / per-block: n=16, mean_rel=2.571692e-02, max_abs=3.509289e-02, nonzero_to_zero=0
+  outlier rel_err=0.000000e+00

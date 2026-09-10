@@ -392,8 +392,12 @@ assignment01 Bonus 中的 naive matmul。由于该实现使用 fp32，只比较�
 | naive（assignment01，fp32） |3.4290 |0.3% | |
 | 4.1 tiled |29.4 |3% | |
 | 4.2 TMA |540.8 |31% | |
-| 4.3 pipeline（S=3） | | | |
+| 4.3 pipeline（S=3） |292.2 |28% | |
 | cuBLAS |1040 | 100% | |
+
+4.3 数据测于 2026-09-10，GPU 为 NVIDIA B300 SXM6 AC，形状为
+4096³，判测 PASS（bad=0），耗时 0.47 ms。该行达成率使用同次运行的
+cuBLAS 1057.2 TFLOPS 计算；其余行保留原有记录。
 
 
 ### 4.1 {.prob type=FROM-SCRATCH file=cuda/m4_gemm/01_tiled.cu}
@@ -473,8 +477,13 @@ cd m4_gemm && ./sweep_stages.sh
 
    | 形状 | S=2 | S=3 | S=4 | S=6 |
    |---|---|---|---|---|
-   | 4096³ | | | | |
-   | 256 × 4096 × 16384 | | | | |
+   | 4096³ | 326.0 | 292.2 | 236.0 | 139.7 |
+   | 256 × 4096 × 16384 | 133.0 | 133.1 | 132.1 | 133.0 |
+
+   单位：TFLOPS。2026-09-10 在同一块 NVIDIA B300 SXM6 AC 上运行
+   当前实现，每个 STAGES 均通过 `make -B` 重新编译，八组参数全部
+   PASS（bad=0）。4096³ 的计时取 20 次 kernel 执行的平均值，
+   256 × 4096 × 16384 取 100 次平均值；扫描前后未发现其他 GPU 计算进程。
 
    比较两个形状对 `STAGES` 的敏感程度，并结合 shared memory 用量、
    每个 SM 可同时驻留的 block 数以及 block 间并发能够隐藏的延迟进行解释。
@@ -604,7 +613,7 @@ uv run python kernels/quant_outlier.py
 
 | 采样点 $x\approx$ | 0.5 | 0.1 | 0.01 | 0.005 | 3000 |
 |---|---|---|---|---|---|
-| 相对误差 | | | | | |
+| 相对误差 | 4.611e-2 | 4.634e-2 | 3.085e-1 | 1.000 | 0 |
 
 根据实验结果回答：
 
@@ -614,6 +623,38 @@ uv run python kernels/quant_outlier.py
 
 (c) 改用 1×128 的 per-block scale 后，包含 outlier 的 block 与不包含
 outlier 的 block 分别有什么变化？
+
+#### 5.1 实验结果
+
+2026-09-10 在 CPU 上使用 PyTorch 2.11.0+cu130 运行，无需 GPU。
+输入使用脚本中的 seed=0；表格取实际输入中最接近目标值的元素，
+相对误差定义为 $|\hat{x}-x|/|x|$。
+完整输出见 [5.1-quant-outlier-raw.txt](5.1-quant-outlier-raw.txt)。
+
+(a) 去掉 outlier 后，约 0.5 处的相对误差为 $3.086322\times10^{-4}$，
+含 outlier 时的误差是它的 149.409925 倍，即误差降低约 99.33%。
+这是该采样点的实测比值，并不意味着所有元素的误差都会缩小相同比例：
+舍入误差还取决于输入与量化格点的距离。
+
+(b) E4M3 的最小正 subnormal 为 $2^{-9}$。采用 round-to-nearest-even，
+零与该数的中点 $2^{-10}$ 舍入为零，所以反量化为零的区间为
+
+$$
+|x|\le s\,2^{-10},\qquad s=\operatorname{amax}(|x|)/448.
+$$
+
+含 outlier 时 $s=6.696428776$，阈值为 $0.006539481226$；
+去掉后 $s=0.002231889637$，阈值为 $2.179579724\times10^{-6}$。
+脚本测试阈值的 0.999、1、1.001 倍，前两者变为零，最后一个变为
+$s\,2^{-9}$。10000 个普通元素中，被量化为零的非零元素从 79 个降至 0 个。
+
+(c) 从索引 0 开始按连续 128 个元素分组。outlier 位于索引 10000，
+最后一组从 9984 开始，实际包含 16 个普通元素与 1 个 outlier。
+该组的 amax 仍为 3000，scale 与 per-tensor 相同，因此其中普通元素
+的量化结果不变，平均相对误差仍为 0.02571692；outlier 自身误差为零。
+其他 78 组共 9984 个元素使用各自接近 $1/448$ 的 scale，平均相对
+误差从 0.03798510 降至 0.02205409，被量化为零的非零元素从 79 个降至 0 个。
+分组限制了 outlier 影响的范围，但不保证每个元素的舍入误差都变小。
 
 
 ### 5.2 {.prob type=DERIVE file=kernels/block_scale_sim.py}
@@ -654,6 +695,61 @@ $N \times \lceil K/SV \rceil$，每个 scale 负责连续的 16 或 32 个 K
 共享，但每个组仍覆盖一段 K；NVFP4 则每 16 个 K 元素一组。
 结合 5.1(c) 的误差，说明粒度 16 相对粒度 128 有什么优势，又增加了
 多少 scale metadata 与供数复杂度。
+
+#### 5.2 推导与验证
+
+(a) 本题存储 $A\in\mathbb{R}^{M\times K}$、$B\in\mathbb{R}^{N\times K}$，
+计算 $C=AB^T$。令归一化后的值为 $q$，K 分段为 $I_b$，则
+
+$$
+C_{ij}=\sum_k(s^A_i q^A_{ik})(s^B_j q^B_{jk})
+=s^A_i s^B_j\sum_k q^A_{ik}q^B_{jk}.
+$$
+
+$$
+C_{ij}=\sum_b\sum_{k\in I_b}(s^A_{ib}q^A_{ik})(s^B_{jb}q^B_{jk})
+=\sum_b s^A_{ib}s^B_{jb}\left(\sum_{k\in I_b}q^A_{ik}q^B_{jk}\right).
+$$
+
+第一式的 scale 乘积与 k 无关，可以在完整归约后乘回；第二式的乘积
+随 b 改变，必须在各段分别乘回。错误范例把每段的乘积都替换成第一段
+的乘积，仅当乘积恰好恒定或出现特殊抵消时才可能等价。
+
+(b) 参考 [CUTLASS Blackwell SM100 的 Block Scaled GEMMs](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/blackwell_functionality.html#block-scaled-gemms)。
+GEMM 内循环沿 K 推进，一对输入通道上的连续 SV 个 K 元素共享 scale，
+正好形成可以独立还原的 partial sum。因此 A 的 scale 逻辑形状是
+$M\times\lceil K/SV\rceil$，B 是 $N\times\lceil K/SV\rceil$。
+硬件可随 K tile 搬运数据及其对应 scale，在一组连续操作数间复用
+scale，并按 block-scaled MMA 的语义在累加前完成缩放。这样既匹配
+连续供数，又无需对输出执行逐 K 段的软件还原。实际 scale 存储还需
+遵循指令要求的重排布局，逻辑二维形状不意味着普通 row-major 布局即可直接消费。
+这是一种兼顾精度和硬件复用的设计选择，并非代数上禁止其他分组方式。
+
+(c) 在数值格式、scale 字节数及输出通道共享方式相同的前提下，K 粒度
+从 128 缩至 16，使每个 outlier 最多影响同组另外 15 个元素，而非 127 个，
+可使更多普通元素使用贴近局部范围的 scale。5.1(c) 已展示这种隔离作用；
+对于本题追加在末尾的 outlier，16 粒度下它单独占据尾组，普通元素都不与它共享 scale。
+但这不意味着 NVFP4 的 E2M1 总体误差必定小于 E4M3，因为两者有效精度也不同。
+
+若 K 是 128 的倍数，相同通道粒度下 scale 数量变为 8 倍（额外增加 7 倍）；
+一般情况比值为 $\lceil K/16\rceil/\lceil K/128\rceil$。
+以每个 scale 1 byte、FP4 数据每元素 0.5 byte 计，scale 开销从
+每元素 $1/128$ byte 增为 $1/16$ byte，即数据载荷的 1.5625% 增至 12.5%，
+不含 padding 和额外的全局 scale。量化端需计算更多组的 amax，GEMM 端
+需搬运并排列更多 scale，与数据 tile 保持对应；同一 K 长度内 scale
+更新次数也增加，但硬件支持下并不等于执行时间增加 8 倍。
+
+DeepSeek-V3 权重的 128×128 还跨 128 个输出通道共享 scale；若直接与
+1×16 比较，在整除且无 padding 时，scale 数量比为 $128\times8=1024$，
+不能仅计 K 方向的 8 倍。若前者使用 FP32 scale、后者使用 1-byte E4M3
+scale，则这部分 metadata 字节量比为 256；该比较不包含数据 dtype 差异与全局 scale。
+
+验证使用已有 Python 环境
+`/home/lcpu/35673796/FlashKDA-on-SM100/FlashKDA/.venv-b300-managed/bin/python`，
+在 `assignment02/` 下运行 `-m pytest tests/test_block_scale.py -q`，
+结果为 **3 passed**（pytest 9.1.1）。两个正确函数均通过
+`rtol=2e-13, atol=2e-13` 的 fp64 对拍，错误范例通过不等价检查。
+上述模拟仅验证 scale 的代数位置，不包含 FP8/FP4 舍入。
 
 ### 5.3 {.prob type=FROM-SCRATCH file=cuda/m5_lowprec/}
 
@@ -708,7 +804,7 @@ make run/m5_lowprec/test_fp4_gemm
 - ceiling probe 的 GB/s；
 - quant kernel 的 GB/s；
 - 两者的比值。
-
+约 2158 GB/s 比值为100%,离访存上限差距巨大,来自于访存问题
 结合 Nsight Compute 判断 quant kernel 距离自己的访存上限还有多远，
 以及剩余差距主要来自访存还是计算。
 
