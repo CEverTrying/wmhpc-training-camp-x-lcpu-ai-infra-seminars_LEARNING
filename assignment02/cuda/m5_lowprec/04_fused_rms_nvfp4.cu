@@ -82,16 +82,58 @@ __global__ void rms_norm_baseline_kernel(const __nv_bfloat16* __restrict__ in,
     }
 }
 
-// TODO(核心):融合 kernel。签名自定,在 launch_fused 里接上。
+// One block per row; shared-memory reduction followed by per-group quantization.
+__global__ void fused_rms_nvfp4_kernel(const __nv_bfloat16* in,
+                                      const __nv_bfloat16* w,
+                                      uint8_t* dataOut, uint8_t* sfOut,
+                                      int K, float eps) {
+    constexpr int BLOCK = 256;
+    __shared__ float sumsq[BLOCK];
+    int row = blockIdx.x;
+    int tid = threadIdx.x;
+
+    float sum = 0.f;
+    for (int k = tid; k < K; k += BLOCK) {
+        float x = __bfloat162float(in[(size_t)row * K + k]);
+        sum += x * x;
+    }
+    sumsq[tid] = sum;
+    __syncthreads();
+    for (int stride = BLOCK / 2; stride > 0; stride /= 2) {
+        if (tid < stride) sumsq[tid] += sumsq[tid + stride];
+        __syncthreads();
+    }
+    float rnorm = 1.f / sqrtf(sumsq[0] / K + eps);
+
+    // Each thread handles complete groups of 16 normalized values.
+    for (int group = tid; group < K / NVFP4_GROUP; group += BLOCK) {
+        float values[NVFP4_GROUP];
+        float amax = 0.f;
+        for (int i = 0; i < NVFP4_GROUP; ++i) {
+            int k = group * NVFP4_GROUP + i;
+            float x = __bfloat162float(in[(size_t)row * K + k]);
+            values[i] = x * rnorm * __bfloat162float(w[k]);
+            amax = fmaxf(amax, fabsf(values[i]));
+        }
+        __nv_fp8_e4m3 sf(amax / 6.f);
+        sfOut[sf_swizzled_offset(row, group, nvfp4_num_ktiles(K))] = sf.__x;
+        float scale = float(sf);
+        float inv = scale != 0.f ? 1.f / scale : 0.f;
+        for (int i = 0; i < NVFP4_GROUP; i += 2) {
+            __nv_fp4x2_e2m1 packed(make_float2(values[i] * inv, values[i + 1] * inv));
+            dataOut[(size_t)row * K / 2 + group * 8 + i / 2] = packed.__x;
+        }
+    }
+}
+
 static void launch_fused(const __nv_bfloat16* in, const __nv_bfloat16* w,
                          uint8_t* dataOut, uint8_t* sfOut, int M, int K,
                          float eps, int sms) {
-    // TODO
-    (void)in; (void)w; (void)dataOut; (void)sfOut; (void)M; (void)K;
-    (void)eps; (void)sms;
+    (void)sms;
+    fused_rms_nvfp4_kernel<<<M, 256>>>(in, w, dataOut, sfOut, K, eps);
 }
 
-// TODO(公平基线):两步各自的最优启动配置。默认给的是一个起点。
+// 题目给定的两步基线。
 static void launch_two_step(const __nv_bfloat16* in, const __nv_bfloat16* w,
                             __nv_bfloat16* mid, uint8_t* dataOut,
                             uint8_t* sfOut, int M, int K, float eps,
